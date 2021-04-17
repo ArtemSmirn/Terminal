@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <iostream.h>
 
 #define INTERP_BUFSIZE 64
 
@@ -37,7 +36,7 @@ char** interpretation_command(char* line)
   item = strtok(line, " \t\r\n\a");
   
   // Разбиваем строку
-  while(token != NULL)
+  while(item != NULL)
   {
     // Добавляем элемент строки в массив
     items[position] = item;
@@ -65,10 +64,118 @@ char** interpretation_command(char* line)
   }
   
   items[position] = NULL;
-  return tokens;
+  return items;
+}
+
+// Работа с введенными процессами
+int start_process(char** args)
+{
+  pid_t pid, wpid;
+  int status;
+  
+  pid = fork();
+  
+  if(pid == 0)
+  {
+    // Дочерний процесс
+    if(execvp(args[0], args) == -1)
+    {
+      perror("ter");
+    }
+    
+    exit(EXIT_FAILURE);
+  } 
+  else if(pid < 0)
+  {
+    // Ошибка при форкинге
+    perror("ter");
+  }
+  else
+  {
+    // Родительский процесс
+    do
+    {
+      wpid = waitpid(pid, &status, WUNTRACED);
+    } while(!WIFEXITED(status) && !WIFSIGNALED(status));
+  }
+  
+  return 1;
+}
+
+// Реализация комады cd
+int ter_cd(char** args)
+{
+  if(args[1] == NULL)
+  {
+    fprintf(stderr, "Ожидается аргумент");
+  }
+  else
+  {
+    if(chdir(args[1]) != 0)
+    {
+      perror("ter");
+    }
+    return 1;
+  }
+}
+
+// Реализация команды exit
+int ter_exit(char** args)
+{
+  return 0;
+}
+
+char* embed_command[] = {"cd", "exit"};
+
+int (* fun_command[])(char **) = {&ter_cd, &ter_exit};
+
+// Работа с процессами
+int join_procces(char** args)
+{
+  int i;
+  
+  // Вводится пустая команда
+  if(args[0] == NULL)
+  {
+    return 1;
+  }
+  
+  for(i=0; i < (sizeof(embed_command) / sizeof(char* )); i++)
+  {
+    if(strcmp(args[0], embed_command[i]) == 0)
+    {
+      return(*fun_command[i])(args);
+    }
+  }
+  
+  return start_process(args);
 }
 
 
+void terminal(void)
+{
+  char* line;
+  char** args;
+  int status;
+  
+  do
+  {
+    printf("> ");
+    line = read_command();
+    args = interpretation_command(line);
+    status = join_procces(args);
+    
+    free(line);
+    free(args);
+  }while(status);
+}
+
+int main(int argc, char** argv)
+{
+  terminal();
+  
+  return EXIT_SUCCESS;
+}
 
 
 
