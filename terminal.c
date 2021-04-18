@@ -1,9 +1,17 @@
 #include <sys/wait.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 
 #define INTERP_BUFSIZE 64
+#define ENTER 13
+#define SIZE_PATH 256 
+
+pid_t pid;  // Идентификатор родительского процесса
+pid_t wpid; // Идентификатор дочернего процесса
+char click;
 
 //Считывание команды из консоли
 char *read_command(void)
@@ -67,17 +75,18 @@ char** interpretation_command(char* line)
   return items;
 }
 
-// Работа с введенными процессами
+// Запуск процессов
 int start_process(char** args)
 {
-  pid_t pid, wpid;
   int status;
-  
+
+  //Создание нового процесса
   pid = fork();
-  
+
+  // Если дочерний процесс  
   if(pid == 0)
   {
-    // Дочерний процесс
+    // Запуск новой команды
     if(execvp(args[0], args) == -1)
     {
       perror("ter");
@@ -87,7 +96,6 @@ int start_process(char** args)
   } 
   else if(pid < 0)
   {
-    // Ошибка при форкинге
     perror("ter");
   }
   else
@@ -95,6 +103,7 @@ int start_process(char** args)
     // Родительский процесс
     do
     {
+      // Ожидание состояния процесса
       wpid = waitpid(pid, &status, WUNTRACED);
     } while(!WIFEXITED(status) && !WIFSIGNALED(status));
   }
@@ -107,13 +116,13 @@ int ter_cd(char** args)
 {
   if(args[1] == NULL)
   {
-    fprintf(stderr, "Ожидается аргумент");
+    printf("Error: ожидается аргумент");
   }
   else
   {
     if(chdir(args[1]) != 0)
     {
-      perror("ter");
+      printf("Error: не удалось осуществить переход");
     }
     return 1;
   }
@@ -140,6 +149,7 @@ int join_procces(char** args)
     return 1;
   }
   
+  // Поиск втроенной команды (cd и exit)
   for(i=0; i < (sizeof(embed_command) / sizeof(char* )); i++)
   {
     if(strcmp(args[0], embed_command[i]) == 0)
@@ -152,19 +162,49 @@ int join_procces(char** args)
 }
 
 
+void ouch(int sig)
+{
+  if(pid == 0)
+  {
+    // Передача сигнала процессу
+    kill(pid, sig);
+  }
+  
+  printf("\n");
+  click = getchar();
+}
+
 void terminal(void)
 {
-  char* line;
-  char** args;
-  int status;
-  
+  char* line;  // Указатель на введенную строку 
+  char** args; // Указатель на элементы строки
+  int status;  //
+  char Path[SIZE_PATH]; // Массив для указания пути
+
+  struct sigaction act;
+  act.sa_handler = ouch;
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = 0;
+
   do
   {
-    printf("> ");
+    // Определение и вывод текущего пути
+    getcwd(Path, sizeof(Path));
+    printf("~%s $", Path);
+
+    // Обработка прерывания при получении сигнала
+    sigaction(SIGINT, &act, 0);
+    if(click == ENTER)
+    {
+      printf("~%s $", Path);
+    }
+    
+    // Обработка введенной команды 
     line = read_command();
     args = interpretation_command(line);
     status = join_procces(args);
-    
+
+    // Очищение выделенной памяти
     free(line);
     free(args);
   }while(status);
